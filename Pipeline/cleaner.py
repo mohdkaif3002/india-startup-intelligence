@@ -89,7 +89,8 @@ def clean(df):
 
     # Step 1 — Deduplicate on startup_name + amount_usd + date
     before = len(df)
-    df = df.drop_duplicates(subset=["startup_name", "amount_usd", "date"])
+    df["date"] = df["date"].astype(str).str.replace("-", "/", regex=False).str.strip()
+    df = df.drop_duplicates(subset=["startup_name", "amount_usd"])
     print(f"Duplicates removed: {before - len(df)}")
 
     # Step 2 — Strip whitespace from all string columns
