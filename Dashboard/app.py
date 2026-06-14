@@ -10,7 +10,7 @@ st.set_page_config(
     layout="wide"
 )
 
-API = "http://127.0.0.1:8000"
+API = "https://india-startup-intelligence-production.up.railway.app"
 
 # ── HEADER ────────────────────────────────────────────────────────────────────
 st.title("🚀 India Startup Funding Intelligence")
