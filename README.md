@@ -10,6 +10,16 @@
 
 ---
 
+## 🌐 Live Demo
+
+| | URL |
+|---|---|
+| 📊 Dashboard | https://india-startup-intelligence.streamlit.app |
+| ⚡ API | https://india-startup-intelligence-production.up.railway.app |
+| 📖 API Docs | https://india-startup-intelligence-production.up.railway.app/docs |
+
+---
+
 ## 🧩 Problem
 
 India's startup funding data is scattered across Crunchbase, Tracxn, Inc42, and YourStory.
@@ -31,19 +41,29 @@ There is no free, open-source tool that unifies this data, surfaces trends, and 
 ---
 
 ## 🏗️ Architecture
-
 ```
 Internet / Kaggle CSVs
-        ↓
+
+↓
+
 Pipeline/scraper.py      ← BeautifulSoup scraper (Inc42)
+
 Pipeline/cleaner.py      ← Pandas cleaning + deduplication
+
 Pipeline/loader.py       ← SQLite database loader
-        ↓
+
+↓
+
 Data/startups.db         ← 3,215 clean startup records
-        ↓
+
+↓
+
 Backend/main.py          ← FastAPI REST API (6 endpoints)
+
 Model/train.py           ← XGBoost classifier (77% accuracy)
-        ↓
+
+↓
+
 Dashboard/app.py         ← Streamlit UI
 ```
 ---
@@ -58,13 +78,14 @@ Dashboard/app.py         ← Streamlit UI
 | Backend API | FastAPI | Auto-docs, production-grade |
 | ML Model | XGBoost + scikit-learn | Best for tabular data |
 | Frontend | Streamlit | Python-only, deployable |
+| API Deployment | Railway | Free, GitHub-connected |
+| Dashboard Deployment | Streamlit Cloud | Free, one-click deploy |
 
 ---
 
 ## 📁 Project Structure
-```
 india-startup-intelligence/
-
+```
 ├── Pipeline/
 
 │   ├── scraper.py        ← Inc42 news scraper
@@ -93,7 +114,7 @@ india-startup-intelligence/
 
 │   └── raw/              ← place downloaded CSVs here
 
-├── Requirement.txt
+├── requirements.txt
 
 └── README.md
 ```
@@ -103,7 +124,7 @@ india-startup-intelligence/
 
 **1. Clone the repo**
 ```bash
-git clone https://github.com/YOUR_USERNAME/india-startup-intelligence.git
+git clone https://github.com/mohdkaif3002/india-startup-intelligence.git
 cd india-startup-intelligence
 ```
 
@@ -116,7 +137,7 @@ source venv/bin/activate     # Mac/Linux
 
 **3. Install dependencies**
 ```bash
-pip install -r Requirement.txt
+pip install -r requirements.txt
 ```
 
 **4. Download datasets**
@@ -147,7 +168,7 @@ uvicorn Backend.main:app --reload
 streamlit run Dashboard/app.py
 ```
 
-Open `http://localhost:8501` in your browser.
+Or visit the live demo: https://india-startup-intelligence.streamlit.app
 
 ---
 
@@ -162,7 +183,8 @@ Open `http://localhost:8501` in your browser.
 | GET | `/cities` | Top cities by deal count |
 | GET | `/predict` | ML prediction for fundraising likelihood |
 
-API docs available at `http://localhost:8000/docs`
+**Base URL:** https://india-startup-intelligence-production.up.railway.app  
+**API Docs:** https://india-startup-intelligence-production.up.railway.app/docs
 
 ---
 
@@ -190,11 +212,15 @@ After cleaning and deduplication: **3,215 unique records**
 
 ## 🗺️ Roadmap
 
+- [x] Data pipeline (scraper, cleaner, loader)
+- [x] FastAPI backend with 6 endpoints
+- [x] XGBoost ML model (77% accuracy)
+- [x] Streamlit dashboard
+- [x] Deploy to Railway + Streamlit Cloud
 - [ ] PostgreSQL migration
 - [ ] SMOTE to fix class imbalance
 - [ ] Real-time Inc42 scraper with pagination
 - [ ] FastAPI authentication
-- [ ] Deploy to Render + Streamlit Cloud
 - [ ] GitHub Actions CI/CD
 
 ---
@@ -213,4 +239,5 @@ MIT License — free to use, modify, and distribute.
 
 ## 👤 Author
 
-Built by Mohammad Kaif as part of an open-source data engineering portfolio.
+Built by Mohammad Kaif as part of an open-source data engineering portfolio.  
+GitHub: [@mohdkaif3002](https://github.com/mohdkaif3002)
