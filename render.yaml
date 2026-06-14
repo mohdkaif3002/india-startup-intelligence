@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: india-startup-api
+    env: python
+    buildCommand: pip install -r requirements.txt && python Pipeline/loader.py
+    startCommand: uvicorn Backend.main:app --host 0.0.0.0 --port $PORT
