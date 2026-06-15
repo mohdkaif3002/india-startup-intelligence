@@ -87,35 +87,20 @@ Dashboard/app.py         ← Streamlit UI
 india-startup-intelligence/
 ```
 ├── Pipeline/
-
 │   ├── scraper.py        ← Inc42 news scraper
-
 │   ├── cleaner.py        ← data cleaning pipeline
-
 │   └── loader.py         ← SQLite loader
-
 ├── Backend/
-
 │   └── main.py           ← FastAPI app (6 endpoints)
-
 ├── Model/
-
 │   ├── train.py          ← XGBoost training script
-
 │   ├── model.pkl         ← saved model
-
 │   └── encoders.pkl      ← saved label encoders
-
 ├── Dashboard/
-
 │   └── app.py            ← Streamlit dashboard
-
 ├── Data/
-
 │   └── raw/              ← place downloaded CSVs here
-
 ├── requirements.txt
-
 └── README.md
 ```
 ---
