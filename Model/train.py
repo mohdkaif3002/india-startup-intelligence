@@ -1,11 +1,25 @@
-import pandas as pd
-import sqlite3
-import joblib
+import json
 import os
-from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
+import sqlite3
+
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.dummy import DummyClassifier
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, classification_report
+from xgboost import XGBClassifier
+
+RANDOM_STATE = 42
 
 # ── 1. LOAD DATA ──────────────────────────────────────────────────────────────
 
@@ -22,95 +36,140 @@ def load_data():
 def create_label(df):
     """
     Label = 1 if this startup appears more than once in the dataset
-    (meaning it raised multiple rounds = successful fundraiser)
-    Label = 0 if it appears only once
+    (proxy for "raised multiple rounds"), else 0.
+    NOTE: this measures repeat appearance in the data, not fundraising success.
     """
     counts = df["startup_name"].value_counts()
     df["label"] = df["startup_name"].map(lambda x: 1 if counts[x] > 1 else 0)
-    print(f"\nLabel distribution:")
-    print(f"  Raised multiple rounds (1): {df['label'].sum()}")
-    print(f"  Single round only     (0): {(df['label'] == 0).sum()}")
+    print("\nLabel distribution:")
+    print(f"  Multiple appearances (1): {df['label'].sum()}")
+    print(f"  Single appearance    (0): {(df['label'] == 0).sum()}")
     return df
 
 
 # ── 3. FEATURE ENGINEERING ────────────────────────────────────────────────────
 
 def build_features(df):
-    """
-    Convert categorical columns to numbers using LabelEncoder.
-    ML models only understand numbers, not strings.
-    """
+    """Same features and encoders as before, so Backend/main.py keeps working."""
     df = df.copy()
 
-    # Fill missing values
-    df["sector"]          = df["sector"].fillna("Unknown")
-    df["city"]            = df["city"].fillna("Unknown")
+    df["sector"] = df["sector"].fillna("Unknown")
+    df["city"] = df["city"].fillna("Unknown")
     df["investment_type"] = df["investment_type"].fillna("Unknown")
-    df["amount_usd"]      = df["amount_usd"].fillna(0)
+    df["amount_usd"] = df["amount_usd"].fillna(0)
 
-    # Encode categorical columns
     encoders = {}
     for col in ["sector", "city", "investment_type"]:
         le = LabelEncoder()
         df[col + "_encoded"] = le.fit_transform(df[col].astype(str))
         encoders[col] = le
 
-    # Final feature set
     features = ["sector_encoded", "city_encoded",
                 "investment_type_encoded", "amount_usd"]
 
     X = df[features]
     y = df["label"]
+    groups = df["startup_name"]  # used to keep each startup on one side of the split
 
     print(f"\nFeatures: {features}")
     print(f"Dataset shape: {X.shape}")
-    return X, y, encoders
+    return X, y, encoders, groups
 
 
-# ── 4. TRAIN MODEL ────────────────────────────────────────────────────────────
+# ── 4. EVALUATION HELPERS ─────────────────────────────────────────────────────
 
-def train(X, y):
-    # Split into train and test sets (80% train, 20% test)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-    print(f"\nTraining on {len(X_train)} rows, testing on {len(X_test)} rows")
-
-    # Train XGBoost classifier
-    model = XGBClassifier(
+def make_model(scale_pos_weight=1.0):
+    return XGBClassifier(
         n_estimators=100,
         max_depth=4,
         learning_rate=0.1,
-        random_state=42,
-        eval_metric="logloss"
+        scale_pos_weight=scale_pos_weight,
+        random_state=RANDOM_STATE,
+        eval_metric="logloss",
     )
-    model.fit(X_train, y_train)
 
-    # Evaluate
+
+def evaluate(model, X_test, y_test):
     y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    print(f"\nModel Accuracy: {accuracy:.2%}")
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred))
+    y_prob = model.predict_proba(X_test)[:, 1]
+    both_classes = y_test.nunique() == 2
+    tn, fp, fn, tp = confusion_matrix(y_test, y_pred, labels=[0, 1]).ravel()
+    return {
+        "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
+        "precision": round(float(precision_score(y_test, y_pred, zero_division=0)), 4),
+        "recall": round(float(recall_score(y_test, y_pred, zero_division=0)), 4),
+        "f1": round(float(f1_score(y_test, y_pred, zero_division=0)), 4),
+        "roc_auc": round(float(roc_auc_score(y_test, y_prob)), 4) if both_classes else None,
+        "pr_auc": round(float(average_precision_score(y_test, y_prob)), 4) if both_classes else None,
+        "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
+    }
 
-    return model
+
+def print_metrics(title, m):
+    print(f"\n{title}")
+    for k in ["accuracy", "precision", "recall", "f1", "roc_auc", "pr_auc"]:
+        print(f"  {k:<10}: {m[k]}")
+    print(f"  confusion : {m['confusion_matrix']}")
 
 
-# ── 5. SAVE MODEL ─────────────────────────────────────────────────────────────
+# ── 5. TRAIN + COMPARE ────────────────────────────────────────────────────────
 
-def save_model(model, encoders):
+def train(X, y, groups):
+    results = {}
+
+    # A) Row-level random split (what the original script did).
+    #    Rows from the SAME startup can land in both train and test.
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
+    )
+    spw = (ytr == 0).sum() / max((ytr == 1).sum(), 1)
+    m_random = make_model(spw).fit(Xtr, ytr)
+    results["random_split"] = evaluate(m_random, Xte, yte)
+
+    # B) Group-aware split: every startup is entirely in train OR test.
+    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=RANDOM_STATE)
+    tr_idx, te_idx = next(gss.split(X, y, groups))
+    Xtr_g, Xte_g = X.iloc[tr_idx], X.iloc[te_idx]
+    ytr_g, yte_g = y.iloc[tr_idx], y.iloc[te_idx]
+    assert set(groups.iloc[tr_idx]).isdisjoint(set(groups.iloc[te_idx]))
+
+    print(f"\nGroup split -> train {len(Xtr_g)} rows, test {len(Xte_g)} rows")
+    print(f"Positive rate in test set: {yte_g.mean():.2%}")
+
+    baseline = DummyClassifier(strategy="most_frequent").fit(Xtr_g, ytr_g)
+    results["baseline_majority_class"] = evaluate(baseline, Xte_g, yte_g)
+
+    spw_g = (ytr_g == 0).sum() / max((ytr_g == 1).sum(), 1)
+    model = make_model(spw_g).fit(Xtr_g, ytr_g)
+    results["group_split"] = evaluate(model, Xte_g, yte_g)
+
+    print_metrics("Baseline (always predict majority class), group split", results["baseline_majority_class"])
+    print_metrics("XGBoost, random row split (may leak)", results["random_split"])
+    print_metrics("XGBoost, group split (honest estimate)", results["group_split"])
+
+    importances = dict(zip(X.columns, [round(float(v), 4) for v in model.feature_importances_]))
+    results["feature_importance"] = importances
+    print(f"\nFeature importance: {importances}")
+
+    return model, results
+
+
+# ── 6. SAVE ───────────────────────────────────────────────────────────────────
+
+def save_model(model, encoders, results):
     os.makedirs("Model", exist_ok=True)
-    joblib.dump(model,    "Model/model.pkl")
+    joblib.dump(model, "Model/model.pkl")
     joblib.dump(encoders, "Model/encoders.pkl")
-    print("Saved model to Model/model.pkl")
-    print("Saved encoders to Model/encoders.pkl")
+    with open("Model/metrics.json", "w") as f:
+        json.dump(results, f, indent=2)
+    print("\nSaved Model/model.pkl, Model/encoders.pkl, Model/metrics.json")
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    df            = load_data()
-    df            = create_label(df)
-    X, y, encoders = build_features(df)
-    model         = train(X, y)
-    save_model(model, encoders)
+    df = load_data()
+    df = create_label(df)
+    X, y, encoders, groups = build_features(df)
+    model, results = train(X, y, groups)
+    save_model(model, encoders, results)
